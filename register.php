@@ -1,80 +1,82 @@
 <?php
     session_start();
-    
-    include("functions.php");
-    
 
+    include("functions.php");
     include_once 'includes/setup_mysql.php';
-    
+
     $errors = [];
     $success = [];
-    
-    // Check if the form is submitted
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    
-        
 
-        $firstName = $_POST['first-name'];
-        $email = $_POST['email'];
+    // Sanitize user input function
+    function sanitize_input($data) {
+        $data = trim($data);
+        $data = stripslashes($data);
+        $data = htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+        return $data;
+    }
+
+    // Check if form is submitted
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+        $firstName = sanitize_input($_POST['first-name']);
+        $email = filter_var($_POST['email'], FILTER_SANITIZE_EMAIL);
         $password = $_POST['password'];
         $confirmPassword = $_POST['confirm-password'];
-    
-       
+
         if (empty($firstName)) {
             $errors[] = 'First Name is required.';
         }
-    
-        
+
         if (empty($email)) {
-        $errors[] = 'Email is required.';
+            $errors[] = 'Email is required.';
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $errors[] = 'Invalid email format.';
-        } elseif (!preg_match('/^[a-zA-Z0-9._%+-]+@northumbria\.ac\.uk$/', $email)) {
+        } elseif (!preg_match('/^[a-zA-Z0-9._%+-]+@northumbria\\.ac\\.uk$/', $email)) {
             $errors[] = 'Only University emails are allowed.';
         } else {
-       
-            $sql = "SELECT * FROM user WHERE email = '$email'";
-            $result = mysqli_query($conn, $sql);
-            if (mysqli_num_rows($result) > 0) {
+            // Using prepared statements to prevent SQL injection
+            $stmt = $conn->prepare("SELECT email FROM user WHERE email = ?");
+            $stmt->bind_param("s", $email);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            if ($result->num_rows > 0) {
                 $errors[] = 'Email already exists.';
             }
+            $stmt->close();
         }
-    
-      
+
         if (empty($password)) {
             $errors[] = 'Password is required.';
         } elseif (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\da-zA-Z]).{8,}$/', $password)) {
             $errors[] = 'Password must contain at least 8 characters, including at least one uppercase letter, one lowercase letter, one number, and one special character.';
         }
+
         if (empty($confirmPassword)) {
             $errors[] = 'Confirm Password is required.';
         } elseif ($password !== $confirmPassword) {
             $errors[] = 'Passwords do not match.';
         }
-    
-        
+
         if (count($errors) === 0) {
-            // Insert user data into the database
             $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-            $sql = "INSERT INTO user (user_type, first_name, email, `password`, `account_status`) VALUES ('user', '$firstName', '$email', '$hashedPassword', '1')";
-            $result = mysqli_query($conn, $sql) or  die("error 21". $sql);
-    
-            if ($result) {
-                
-                $success[] = 'Your account successfully created and activate within two hours!';
-               
-    
-    
+
+            // Using prepared statements to securely insert data
+            $stmt = $conn->prepare("INSERT INTO user (user_type, first_name, email, password, account_status) VALUES (?, ?, ?, ?, ?)");
+            $user_type = 'user';
+            $account_status = '1';
+            $stmt->bind_param("sssss", $user_type, $firstName, $email, $hashedPassword, $account_status);
+
+            if ($stmt->execute()) {
+                $success[] = 'Your account was successfully created and will be activated within two hours!';
             } else {
                 $errors[] = 'Error occurred while registering. Please try again.';
             }
+
+            $stmt->close();
         }
     }
-
-
-
 ?>
-
 
 <!DOCTYPE html>
 <html lang="en">

@@ -1,69 +1,70 @@
 <?php
 
-    session_start();
-     
-    if(!isset($_SESSION['route'])){
-        $_SESSION['route'] = 'submit_blog.php';
-    }
-    else{
-        unset($_SESSION['route']);
-    }
-    
-    
-    // Check if the user is logged in
-    if (!isset($_SESSION['user_id'])) {
-    	// Redirect to the login page or handle accordingly
-    	header("Location:login.php");
-    	exit();
-    }
+session_start();
 
+if (!isset($_SESSION['route'])) {
+    $_SESSION['route'] = 'submit_blog.php';
+} else {
+    unset($_SESSION['route']);
+}
 
-?>
+if (!isset($_SESSION['user_id'])) {
+    header("Location:login.php");
+    exit();
+}
 
+include("includes/setup_mysql.php");
 
-<?php include("includes/app_header.php"); ?>
-
-
-<?php
-
-include("includes/setup_mysql.php"); 
+// Sanitize user input function
+function sanitize_input($data) {
+    return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
+}
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $description = $_POST["description"];
-    $mood = $_POST["mood"];
-    
-    // Handle image upload
-    $targetDir = "images/";
-    $fileName = basename($_FILES["photo"]["name"]);
-    $targetFilePath = $targetDir . $fileName;
-    move_uploaded_file($_FILES["photo"]["tmp_name"], $targetFilePath);
+    $description = sanitize_input($_POST["description"]);
+    $mood = sanitize_input($_POST["mood"]);
 
-    $user_id = $_SESSION['user_id'];
+    // Validate file upload
+    if (isset($_FILES["photo"]) && $_FILES["photo"]["error"] === UPLOAD_ERR_OK) {
+        $fileTmpPath = $_FILES["photo"]["tmp_name"];
+        $fileName = basename(sanitize_input($_FILES["photo"]["name"]));
+        $fileName = preg_replace("/[^a-zA-Z0-9._-]/", "", $fileName);
+        $targetDir = "images/";
+        $targetFilePath = $targetDir . $fileName;
 
-    // Insert into database
-    $stmt = $conn->prepare("INSERT INTO blog_posts (user_id, photo, description, mood, created_at) VALUES (?, ?, ?, ?, NOW())");
-    $stmt->bind_param("isss", $user_id, $fileName, $description, $mood); 
+        if (move_uploaded_file($fileTmpPath, $targetFilePath)) {
+            $user_id = $_SESSION['user_id'];
 
-    if ($stmt->execute()) {
-        
-         $loyaltyPoints = 5; // Points to add per post
+            $stmt = $conn->prepare("INSERT INTO blog_posts (user_id, photo, description, mood, created_at) VALUES (?, ?, ?, ?, NOW())");
+            $stmt->bind_param("isss", $user_id, $fileName, $description, $mood);
 
-        // Update user's loyalty balance
-        $updateStmt = $conn->prepare("UPDATE user SET loyalty_balance = loyalty_balance + ? WHERE id = ?");
-        $updateStmt->bind_param("ii", $loyaltyPoints, $user_id);
-        $updateStmt->execute();
-        $updateStmt->close();
-      
-        echo "<script>window.location.href='profile.php?task_completed=true';</script>";
+            if ($stmt->execute()) {
+                $loyaltyPoints = 5;
+
+                $updateStmt = $conn->prepare("UPDATE user SET loyalty_balance = loyalty_balance + ? WHERE id = ?");
+                $updateStmt->bind_param("ii", $loyaltyPoints, $user_id);
+                $updateStmt->execute();
+                $updateStmt->close();
+
+                header("Location: profile.php?task_completed=true");
+                exit();
+            } else {
+                echo "<script>alert('Error submitting task.'); window.history.back();</script>";
+            }
+
+            $stmt->close();
+        } else {
+            echo "<script>alert('Failed to move uploaded file.'); window.history.back();</script>";
+        }
     } else {
-        echo "<script>alert('Error submitting task.'); window.history.back();</script>";
+        echo "<script>alert('No file uploaded or upload error.'); window.history.back();</script>";
     }
 
-    $stmt->close();
     $conn->close();
 }
 
 ?>
+
 
 <style>
     /* Custom styles */
